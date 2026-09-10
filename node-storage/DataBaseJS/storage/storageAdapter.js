@@ -1,11 +1,12 @@
 import * as memoryStore from './memoryStore.js';
 import * as idGenerator from '../utils/idGenerator.js';
-import { registerFieldsFromObject, getAllFields } from '../utils/fieldRegistry.js';
-import { encodeRecord, decodeRecord } from '../utils/encoder.js';
+import { registerFieldsFromObject } from '../utils/fieldRegistry.js';
+import { encodeRecord } from '../utils/encoder.js';
+import { searchValue } from '../utils/search.js';
 
 export function createRecord(val) {
   const id = idGenerator.getNextId();
-  const record = { pass_id: id, val: { ...val } };
+  const record = { pass_id: id, val: JSON.parse(JSON.stringify(val)) };
   memoryStore.create(id, record);
   registerFieldsFromObject(val);
   return record;
@@ -22,7 +23,7 @@ export function getAllRecords() {
 export function updateRecord(id, val) {
   const existing = memoryStore.get(id);
   if (!existing) return null;
-  const updated = { pass_id: id, val: { ...val } };
+  const updated = { pass_id: id, val: JSON.parse(JSON.stringify(val)) };
   memoryStore.update(id, updated);
   registerFieldsFromObject(val);
   return updated;
@@ -48,7 +49,7 @@ export function searchRecords(query) {
   const all = memoryStore.getAll();
   const results = [];
   for (const record of all) {
-    if (searchInObject(record.val, query)) {
+    if (searchValue(record.val, query)) {
       results.push(record);
     }
   }
@@ -85,24 +86,3 @@ function deepMerge(target, source) {
   return result;
 }
 
-function searchInObject(obj, query) {
-  if (query === undefined || query === null) return false;
-  const q = String(query).toLowerCase();
-
-  if (typeof obj === 'string') return obj.toLowerCase().includes(q);
-  if (typeof obj === 'number') return String(obj).toLowerCase().includes(q);
-  if (typeof obj === 'boolean') return String(obj).toLowerCase().includes(q);
-  if (Array.isArray(obj)) {
-    for (const item of obj) {
-      if (searchInObject(item, query)) return true;
-    }
-    return false;
-  }
-  if (typeof obj === 'object' && obj !== null) {
-    for (const key of Object.keys(obj)) {
-      if (searchInObject(obj[key], query)) return true;
-    }
-    return false;
-  }
-  return false;
-}

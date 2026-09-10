@@ -1,3 +1,11 @@
+export function parseId(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (!/^\d+$/.test(raw)) return null;
+  const id = Number(raw);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  return id;
+}
+
 const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
 
 function containsDangerousKeys(obj) {

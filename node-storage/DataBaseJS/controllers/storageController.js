@@ -1,5 +1,5 @@
 import * as storageService from '../services/storageService.js';
-import { validateStoreData, validateUpdateData } from '../utils/validator.js';
+import { validateStoreData, validateUpdateData, parseId } from '../utils/validator.js';
 
 export function create(req, res) {
   const validation = validateStoreData(req.body);
@@ -17,8 +17,8 @@ export function getAll(req, res) {
 }
 
 export function getOne(req, res) {
-  const id = parseInt(req.params.id, 10);
-  if (isNaN(id)) {
+  const id = parseId(req.params.id);
+  if (id === null) {
     return res.status(400).json({ error: 'Invalid id' });
   }
 
@@ -30,8 +30,8 @@ export function getOne(req, res) {
 }
 
 export function update(req, res) {
-  const id = parseInt(req.params.id, 10);
-  if (isNaN(id)) {
+  const id = parseId(req.params.id);
+  if (id === null) {
     return res.status(400).json({ error: 'Invalid id' });
   }
 
@@ -48,8 +48,8 @@ export function update(req, res) {
 }
 
 export function patch(req, res) {
-  const id = parseInt(req.params.id, 10);
-  if (isNaN(id)) {
+  const id = parseId(req.params.id);
+  if (id === null) {
     return res.status(400).json({ error: 'Invalid id' });
   }
 
@@ -66,8 +66,8 @@ export function patch(req, res) {
 }
 
 export function remove(req, res) {
-  const id = parseInt(req.params.id, 10);
-  if (isNaN(id)) {
+  const id = parseId(req.params.id);
+  if (id === null) {
     return res.status(400).json({ error: 'Invalid id' });
   }
 

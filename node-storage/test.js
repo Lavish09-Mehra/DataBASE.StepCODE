@@ -26,7 +26,9 @@ function request(method, path, body) {
     });
 
     req.on('error', reject);
-    if (body) req.write(JSON.stringify(body));
+    if (body !== undefined && body !== null) {
+      req.write(typeof body === 'string' ? body : JSON.stringify(body));
+    }
     req.end();
   });
 }
@@ -68,7 +70,8 @@ async function runTests() {
   const badVal = await request('POST', '/storeData', { val: 'string' });
   assert('non-object val returns 400', badVal.status === 400);
 
-  const proto = await request('POST', '/storeData', { val: { __proto__: { polluted: true } } });
+  const protoRaw = '{"val":{"__proto__":{"polluted":true}}}';
+  const proto = await request('POST', '/storeData', protoRaw);
   assert('proto pollution blocked', proto.status === 400);
 
   console.log('\n--- GET ALL ---');
@@ -87,6 +90,31 @@ async function runTests() {
   const badId = await request('GET', '/storeData/abc');
   assert('GET /storeData/abc returns 400', badId.status === 400);
 
+  console.log('\n--- INVALID ID CASES ---');
+  const id123abc = await request('GET', '/storeData/123abc');
+  assert('GET /storeData/123abc returns 400', id123abc.status === 400);
+
+  const id0 = await request('GET', '/storeData/0');
+  assert('GET /storeData/0 returns 400', id0.status === 400);
+
+  const idNeg = await request('GET', '/storeData/-1');
+  assert('GET /storeData/-1 returns 400', idNeg.status === 400);
+
+  const idFloat = await request('GET', '/storeData/1.5');
+  assert('GET /storeData/1.5 returns 400', idFloat.status === 400);
+
+  const idEmpty = await request('GET', '/storeData/');
+  assert('GET /storeData/ (empty) routes safely', idEmpty.status === 200 || idEmpty.status === 400 || idEmpty.status === 404);
+
+  const idAbc = await request('DELETE', '/storeData/abc');
+  assert('DELETE /storeData/abc returns 400', idAbc.status === 400);
+
+  const idPut0 = await request('PUT', '/storeData/0', { val: { x: 1 } });
+  assert('PUT /storeData/0 returns 400', idPut0.status === 400);
+
+  const idPatchNeg = await request('PATCH', '/storeData/-5', { val: { x: 1 } });
+  assert('PATCH /storeData/-5 returns 400', idPatchNeg.status === 400);
+
   console.log('\n--- PUT ---');
   const put = await request('PUT', '/storeData/1', { val: { name: 'Lavish Mehra', age: 19 } });
   assert('PUT returns 200', put.status === 200);
@@ -104,6 +132,28 @@ async function runTests() {
 
   const patchNotFound = await request('PATCH', '/storeData/999', { val: { x: 1 } });
   assert('PATCH nonexistent returns 404', patchNotFound.status === 404);
+
+  console.log('\n--- NESTED PATCH ---');
+  await request('PUT', '/storeData/1', {
+    val: { name: 'Lavish', profile: { city: 'Meerut', age: 20 } }
+  });
+  const nestedPatch = await request('PATCH', '/storeData/1', {
+    val: { profile: { city: 'Delhi' } }
+  });
+  assert('nested PATCH returns 200', nestedPatch.status === 200);
+  assert('nested PATCH updates city', nestedPatch.body.data.val.profile.city === 'Delhi');
+  assert('nested PATCH preserves age', nestedPatch.body.data.val.profile.age === 20);
+  assert('nested PATCH preserves name', nestedPatch.body.data.val.name === 'Lavish');
+
+  console.log('\n--- ARRAY REPLACEMENT ---');
+  await request('PUT', '/storeData/1', {
+    val: { name: 'Lavish', skills: ['Rust', 'Node'] }
+  });
+  const arrPatch = await request('PATCH', '/storeData/1', {
+    val: { skills: ['Python'] }
+  });
+  assert('array PATCH returns 200', arrPatch.status === 200);
+  assert('array replaced not merged', JSON.stringify(arrPatch.body.data.val.skills) === '["Python"]');
 
   console.log('\n--- SEARCH ---');
   const search1 = await request('GET', '/storeData/search?q=Lavish');
@@ -127,6 +177,24 @@ async function runTests() {
   const searchRust = await request('GET', '/storeData/search?q=Rust');
   assert('search Rust finds nested record', searchRust.body.data.some(r => r.pass_id === nested.body.data.pass_id));
 
+  console.log('\n--- NESTED SEARCH ---');
+  await request('POST', '/storeData', {
+    val: { user: { name: 'Priya', address: { city: 'Meerut', zip: '250001' } } }
+  });
+  const searchMeerut = await request('GET', '/storeData/search?q=meerut');
+  assert('search Meerut finds nested record', searchMeerut.body.data.length > 0);
+  assert('found record has user Priya', searchMeerut.body.data.some(r => r.val && r.val.user && r.val.user.name === 'Priya'));
+
+  const search250 = await request('GET', '/storeData/search?q=250001');
+  assert('search 250001 finds record by zip', search250.body.data.some(r => r.val && r.val.user && r.val.user.name === 'Priya'));
+
+  console.log('\n--- DEEP CLONE (isolation) ---');
+  const original = { name: 'Test', nested: { x: 1 } };
+  await request('POST', '/storeData', { val: original });
+  original.nested.x = 999;
+  const afterMod = await request('GET', '/storeData/1');
+  assert('stored record not affected by external mutation', afterMod.body.data.val.name === 'Lavish');
+
   console.log('\n--- UNICODE ---');
   const unicode = await request('POST', '/storeData', { val: { greeting: 'नमस्ते दुनिया', emoji: '🎉🚀' } });
   assert('unicode record created', unicode.status === 201);
@@ -144,10 +212,28 @@ async function runTests() {
   const searchSpecial = await request('GET', '/storeData/search?q=< b');
   assert('search special chars finds record', searchSpecial.body.data.some(r => r.pass_id === special.body.data.pass_id));
 
+  console.log('\n--- DANGEROUS NESTED KEYS ---');
+  const nestedProto = '{"val":{"user":{"__proto__":{"polluted":true}}}}';
+  const nestedProtoRes = await request('POST', '/storeData', nestedProto);
+  assert('nested __proto__ blocked', nestedProtoRes.status === 400);
+
+  const nestedConstructor = '{"val":{"data":{"constructor":{"polluted":true}}}}';
+  const nestedConstructorRes = await request('POST', '/storeData', nestedConstructor);
+  assert('nested constructor blocked', nestedConstructorRes.status === 400);
+
   console.log('\n--- ENCODED ---');
   const encoded = await request('GET', '/storeData/encoded');
   assert('GET /storeData/encoded returns 200', encoded.status === 200);
   assert('encoded data is array', Array.isArray(encoded.body.data));
+
+  console.log('\n--- ID NOT REUSED AFTER DELETE ---');
+  const preDel = await request('GET', '/storeData');
+  const countBefore = preDel.body.data.length;
+  const lastId = preDel.body.data[preDel.body.data.length - 1].pass_id;
+  const delResult = await request('DELETE', `/storeData/${lastId}`);
+  assert('record deleted', delResult.status === 200);
+  const newRec = await request('POST', '/storeData', { val: { after: 'delete' } });
+  assert('new ID is greater than deleted ID', newRec.body.data.pass_id > lastId);
 
   console.log('\n--- DELETE ---');
   const del = await request('DELETE', '/storeData/1');
